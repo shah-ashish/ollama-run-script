@@ -21,9 +21,46 @@ ollama serve > /dev/null 2>&1 &
 sleep 3
 ollama --version
 
-# 3. Pull Target Model
+# 3. Pull Target Model (Single-line progress update)
 echo "--- Pulling Model: ${MODEL_NAME} ---"
-ollama pull "${MODEL_NAME}"
+python3 -u -c "
+import urllib.request, json, sys
+
+model = sys.argv[1]
+req = urllib.request.Request(
+    'http://localhost:11434/api/pull',
+    data=json.dumps({'name': model}).encode(),
+    headers={'Content-Type': 'application/json'}
+)
+
+last_pct = -1
+last_status = ''
+try:
+    with urllib.request.urlopen(req) as resp:
+        for line in resp:
+            if not line.strip():
+                continue
+            d = json.loads(line.decode())
+            status = d.get('status', '')
+            total = d.get('total', 0)
+            completed = d.get('completed', 0)
+            if total > 0:
+                pct = int((completed / total) * 100)
+                if pct != last_pct:
+                    mb_done = completed // (1024 * 1024)
+                    mb_tot = total // (1024 * 1024)
+                    sys.stdout.write(f'\r\033[K[Ollama] {status} {pct}% ({mb_done}/{mb_tot} MB)')
+                    sys.stdout.flush()
+                    last_pct = pct
+            else:
+                if status != last_status:
+                    sys.stdout.write(f'\r\033[K[Ollama] {status}\n')
+                    sys.stdout.flush()
+                    last_status = status
+    print(f'\r\033[K[Ollama] Model {model} downloaded successfully!\n')
+except Exception as e:
+    sys.exit(1)
+" "${MODEL_NAME}" || ollama pull "${MODEL_NAME}"
 
 # 4. Install Cloudflared
 echo "--- Installing Cloudflared ---"
